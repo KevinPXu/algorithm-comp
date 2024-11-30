@@ -15,16 +15,17 @@ from collections import defaultdict
 
 BATCH_SIZE = 32
 GAMMA = 0.99
-LEARNING_RATE = 0.00025
+LEARNING_RATE = 0.0005
 TARGET_UPDATE_FREQ = 10000
 REPLAY_MEMORY_SIZE = 1000000
 REPLAY_MEMORY_START_SIZE = 50000
 EPSILON_START = 1.0
 MIN_EPSILON = 0.1
-EPSILON_DECAY_FRAMES = 2000000
+EPSILON_DECAY_FRAMES = 3000000
 # MAX_EPISODES = 500 #500
 SEED = 42
-MAX_FRAMES = 2_000_000  # Adjust as per your computational resources
+MAX_FRAMES = 3_000_000 
+MOVEMENT_BIAS = 0.7
 
 param_str = f"BS={BATCH_SIZE} G={GAMMA} LR={LEARNING_RATE} TUF={TARGET_UPDATE_FREQ} ES={EPSILON_START} ME={MIN_EPSILON} EDF={EPSILON_DECAY_FRAMES} MF={MAX_FRAMES}  SD={SEED}"
 
@@ -178,7 +179,12 @@ def main():
             steps_done += 1
             epsilon = compute_epsilon(steps_done)
             if random.random() < epsilon:
-                action = env.action_space.sample()
+                if random.random() < MOVEMENT_BIAS:
+                    # Only select from movement actions (typically indices 2-9 in Bank Heist)
+                    action = random.randint(2, 9)
+                else:
+                    # Full action space including fire
+                    action = env.action_space.sample()
             else:
                 with torch.no_grad():
                     state_tensor = torch.from_numpy(state).unsqueeze(0).float().to(device)

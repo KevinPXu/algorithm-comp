@@ -54,7 +54,7 @@ def main():
     policy_nn = CNN(in_channels=4, num_actions=env.action_space.n).to(device)
 
     # CHOOSE policy_nn.pth OR target_nn.pth (ENSURE CORRECT CHOICE)
-    policy_nn.load_state_dict(torch.load("target_nn_BS=32 G=0.99 LR=0.00025 TUF=10000 ES=1.0 ME=0.1 EDF=2000000 MF=2000000  SD=42.pth", map_location=device, weights_only=True))
+    policy_nn.load_state_dict(torch.load("target_nn_BS=32 G=0.99 LR=0.0005 TUF=10000 ES=1.0 ME=0.1 EDF=4000000 MF=4000000  SD=42.pth", map_location=device, weights_only=True))
     policy_nn.eval()  # Set to evaluation mode
 
     # Initialize game
