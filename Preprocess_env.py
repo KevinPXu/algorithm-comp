@@ -233,8 +233,8 @@ class AtariPreprocessing(gym.Wrapper, gym.utils.RecordConstructorArgs):
             obs = np.expand_dims(obs, axis=-1)  # Add a channel axis
 
         # re-order to channels, height, width for input to CNN
-        if len(obs.shape) == 3:
-            obs = np.transpose(obs, (2, 0, 1))
+        # if len(obs.shape) == 3:
+        #     obs = np.transpose(obs, (2, 0, 1))
 
         return obs
 

@@ -43,18 +43,18 @@ def main():
                             frame_skip=4,
                             screen_size=84,
                             terminal_on_life_loss=False,
-                            grayscale_obs=False,
+                            grayscale_obs=True,
                             grayscale_newaxis=False,
                             scale_obs=True)
-
+    env = gym.wrappers.FrameStackObservation(env, stack_size=4)
     # Device setup
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # Load saved networks
-    policy_nn = CNN(in_channels=3, num_actions=env.action_space.n).to(device)
+    policy_nn = CNN(in_channels=4, num_actions=env.action_space.n).to(device)
 
     # CHOOSE policy_nn.pth OR target_nn.pth (ENSURE CORRECT CHOICE)
-    policy_nn.load_state_dict(torch.load("policy_nn.pth", map_location=device))
+    policy_nn.load_state_dict(torch.load("target_nn_BS=32 G=0.99 LR=0.00025 TUF=10000 ES=1.0 ME=0.1 EDF=2000000 MF=2000000  SD=42.pth", map_location=device, weights_only=True))
     policy_nn.eval()  # Set to evaluation mode
 
     # Initialize game
@@ -65,6 +65,7 @@ def main():
     while not done:
         with torch.no_grad():
             state_tensor = torch.from_numpy(state).unsqueeze(0).float().to(device)
+            state_tensor = state_tensor.reshape(1, -1, 84, 84)
             action_choices = policy_nn(state_tensor)
             action = action_choices.argmax().item()
         state, reward, done, truncated, _ = env.step(action)
@@ -76,7 +77,7 @@ def main():
 
         # Plot game state
         plt.subplot(1, 2, 1)
-        state_to_plot = np.transpose(state, (1, 2, 0))
+        state_to_plot = state[-1]
         plt.imshow(state_to_plot)
         plt.axis("off")
         plt.title(f'Current Frame\nChosen Action: {actions_dict[action]}')
