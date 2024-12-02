@@ -6,6 +6,8 @@ import torch
 from Preprocess_env import AtariPreprocessing
 from cnn import cnn as CNN
 import matplotlib.pyplot as plt
+import os
+from datetime import datetime
 
 actions_dict = {
     0: "NOOP",
@@ -54,13 +56,22 @@ def main():
     policy_nn = CNN(in_channels=4, num_actions=env.action_space.n).to(device)
 
     # CHOOSE policy_nn.pth OR target_nn.pth (ENSURE CORRECT CHOICE)
-    policy_nn.load_state_dict(torch.load("target_nn_BS=32 G=0.99 LR=0.0005 TUF=10000 ES=1.0 ME=0.1 EDF=4000000 MF=4000000  SD=42.pth", map_location=device, weights_only=True))
+    policy_nn.load_state_dict(torch.load("Training_files/target_nn_BS=32 G=0.99 LR=0.00025 TUF=10000 ES=1.0 ME=0.1 EDF=2000000 MF=2000000  SD=42.pth", map_location=device, weights_only=True))
     policy_nn.eval()  # Set to evaluation mode
 
     # Initialize game
     done = False
-    state, _ = env.reset()
+    state, _ = env.reset(seed=42)
 
+    # Create output directory for frames
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    frames_dir = f"frames_{timestamp}"
+    os.makedirs(frames_dir, exist_ok=True)
+    frame_count = 0
+
+    # Initialize total reward counter
+    total_reward = 0
+    
     # Gameplay loop
     while not done:
         with torch.no_grad():
@@ -69,34 +80,62 @@ def main():
             action_choices = policy_nn(state_tensor)
             action = action_choices.argmax().item()
         state, reward, done, truncated, _ = env.step(action)
+        total_reward += reward
         done = done or truncated
-        #env.render()  # consider moving everything below to a helper function
 
-        # Clear the current figure
-        plt.clf()
-
+        # Create a new figure with adjusted size
+        plt.figure(figsize=(10, 6))
+        
+        # Create a gridspec with custom spacing
+        gs = plt.GridSpec(2, 2, 
+                         width_ratios=[1, 0.6], 
+                         height_ratios=[4, 1],
+                         wspace=0.1,
+                         hspace=0.1)
+        
         # Plot game state
-        plt.subplot(1, 2, 1)
+        plt.subplot(gs[0, 0])
         state_to_plot = state[-1]
         plt.imshow(state_to_plot)
         plt.axis("off")
-        plt.title(f'Current Frame\nChosen Action: {actions_dict[action]}')
+        plt.title(f'Current Frame\nChosen Action: {actions_dict[action]}', pad=5)
 
-        # Plot Q-values
-        plt.subplot(1, 2, 2)
+        # Add reward counter under the game state
+        plt.subplot(gs[1, 0])
+        plt.text(0.5, 0.5, f'Total Reward: {total_reward}', 
+                horizontalalignment='center',
+                verticalalignment='center',
+                fontsize=12,
+                fontweight='bold')
+        plt.axis('off')
+
+        # Plot Q-values with adjusted height
+        plt.subplot(gs[0, 1])
         q_values = action_choices[0].cpu().numpy()
-        plt.bar(range(env.action_space.n), q_values)
         plt.bar(range(len(q_values)), q_values, tick_label=list(actions_dict.values()))
         plt.xticks(rotation=90)
         plt.xlabel("Actions")
         plt.ylabel("Q-values")
-        plt.title('Q-values for each action')
+        plt.title('Q-values for each action', pad=5)
 
-        # Update the display
-        plt.draw()
-        plt.pause(0.1)
+        # Add empty subplot to maintain spacing
+        plt.subplot(gs[1, 1])
+        plt.axis('off')
+
+        # Save the frame
+        plt.savefig(os.path.join(frames_dir, f'frame_{frame_count:05d}.png'), 
+                    dpi=100,
+                    bbox_inches='tight',
+                    pad_inches=0.1)
+        plt.close()
+        frame_count += 1
 
     env.close()
+
+    # Create GIF with smaller duration for smoother playback
+    from Gifmaker import create_gif_from_pngs
+    gif_path = f"gameplay_{timestamp}.gif"
+    create_gif_from_pngs(frames_dir, gif_path, duration=50)  # 50ms per frame for smoother playback
 
 if __name__ == "__main__":
     main()

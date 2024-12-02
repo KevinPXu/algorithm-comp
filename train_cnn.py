@@ -12,22 +12,26 @@ import time
 import torch.nn as nn
 from collections import deque
 from collections import defaultdict
+import os
+from matplotlib.ticker import MaxNLocator
 
 BATCH_SIZE = 32
 GAMMA = 0.99
-LEARNING_RATE = 0.0005
+LEARNING_RATE = 0.00025
 TARGET_UPDATE_FREQ = 10000
 REPLAY_MEMORY_SIZE = 1000000
 REPLAY_MEMORY_START_SIZE = 50000
 EPSILON_START = 1.0
-MIN_EPSILON = 0.1
-EPSILON_DECAY_FRAMES = 3000000
+MIN_EPSILON = 0.2
+EPSILON_DECAY_FRAMES = 2000000
 # MAX_EPISODES = 500 #500
 SEED = 42
-MAX_FRAMES = 3_000_000 
-MOVEMENT_BIAS = 0.7
+MAX_FRAMES = 2000000 
+PLOT_INTERVAL = 10  # Plot every N episodes
+SAVE_DIR = "training_plots"
+os.makedirs(SAVE_DIR, exist_ok=True)
 
-param_str = f"BS={BATCH_SIZE} G={GAMMA} LR={LEARNING_RATE} TUF={TARGET_UPDATE_FREQ} ES={EPSILON_START} ME={MIN_EPSILON} EDF={EPSILON_DECAY_FRAMES} MF={MAX_FRAMES}  SD={SEED}"
+param_str = f"BS={BATCH_SIZE} G={GAMMA} LR={LEARNING_RATE} TUF={TARGET_UPDATE_FREQ} ES={EPSILON_START} ME={MIN_EPSILON} EDF={EPSILON_DECAY_FRAMES} MF={MAX_FRAMES} SEED={SEED}"
 
 def compute_epsilon(steps_done):
     epsilon = MIN_EPSILON + (EPSILON_START - MIN_EPSILON) * max(0, (EPSILON_DECAY_FRAMES - steps_done) / EPSILON_DECAY_FRAMES)
@@ -95,6 +99,101 @@ def train(policy_nn, target_nn, replay_buffer, optimizer, batch_size, gamma, dev
 
     return loss.item()
 
+class TrainingPlotter:
+    def __init__(self, param_str):
+        self.param_str = param_str
+        self.episode_rewards = []
+        self.episode_losses = []
+        self.moving_avg_rewards = []
+        self.moving_avg_losses = []
+        self.steps = []
+        self.window_size = 100
+        self.start_time = time.time()
+        self.episode_times = []
+        
+        # Create figure with two subplots and extra space at bottom
+        self.fig, self.axs = plt.subplots(2, 1, figsize=(15, 12))
+        self.fig.suptitle(f'Training Metrics\n{param_str}')
+        
+        # Create a text box for metrics that we can update
+        self.metrics_text = self.fig.text(0.02, 0.02, "", fontsize=10, va='bottom')
+        
+    def update(self, episode, reward, losses, total_steps, epsilon):
+        # Store raw data
+        self.episode_rewards.append(reward)
+        if losses:
+            avg_loss = np.mean(losses)
+            self.episode_losses.append(avg_loss)
+        self.steps.append(total_steps)
+        self.episode_times.append(time.time() - self.start_time)
+        
+        # Calculate moving averages
+        if len(self.episode_rewards) >= self.window_size:
+            self.moving_avg_rewards.append(np.mean(self.episode_rewards[-self.window_size:]))
+            self.moving_avg_losses.append(np.mean(self.episode_losses[-self.window_size:]))
+        
+        # Plot every PLOT_INTERVAL episodes
+        if episode % PLOT_INTERVAL == 0:
+            self.plot_metrics(episode, epsilon)
+    
+    def plot_metrics(self, episode, epsilon):
+        # Clear the entire figure
+        plt.clf()
+        
+        # Recreate subplots
+        self.axs = self.fig.subplots(2, 1)
+        self.fig.suptitle(f'Training Metrics\n{self.param_str}')
+        
+        # Plot 1: Rewards
+        self.axs[0].plot(self.episode_rewards, 'b-', alpha=0.3, label='Raw Reward')
+        if self.moving_avg_rewards:
+            self.axs[0].plot(range(self.window_size-1, len(self.moving_avg_rewards) + self.window_size-1),
+                            self.moving_avg_rewards, 'r-', label=f'{self.window_size}-Episode Moving Avg')
+        self.axs[0].set_title('Rewards per Episode')
+        self.axs[0].set_xlabel('Episode')
+        self.axs[0].set_ylabel('Reward')
+        self.axs[0].legend()
+        self.axs[0].grid(True)
+        
+        # Plot 2: Losses
+        if self.episode_losses:
+            self.axs[1].plot(self.episode_losses, 'b-', alpha=0.3, label='Raw Loss')
+            if self.moving_avg_losses:
+                self.axs[1].plot(range(self.window_size-1, len(self.moving_avg_losses) + self.window_size-1),
+                                self.moving_avg_losses, 'r-', label=f'{self.window_size}-Episode Moving Avg')
+            self.axs[1].set_title('Loss per Episode')
+            self.axs[1].set_xlabel('Episode')
+            self.axs[1].set_ylabel('Loss')
+            self.axs[1].legend()
+            self.axs[1].grid(True)
+        
+        # Update metrics text
+        info_text = (f'Episodes: {episode}\n'
+                    f'Total Steps: {self.steps[-1]:,}\n'
+                    f'Epsilon: {epsilon:.4f}\n'
+                    f'Avg Reward: {np.mean(self.episode_rewards[-100:]):.4f}\n'
+                    f'Avg Loss: {np.mean(self.episode_losses[-100:]):.4f}\n'
+                    f'Time (hrs): {(time.time() - self.start_time) / 3600:.2f}')
+        
+        # Adjust subplot spacing and update text
+        plt.subplots_adjust(bottom=0.15)
+        # Remove old text and add new text
+        if hasattr(self, 'metrics_text'):
+            self.metrics_text.remove()
+        self.metrics_text = self.fig.text(0.02, 0.02, info_text, fontsize=10, va='bottom')
+        
+        plt.savefig(os.path.join(SAVE_DIR, f'training_metrics_{self.param_str}.png'))
+        
+    def save_data(self):
+        """Save the training data to a file"""
+        np.savez(os.path.join(SAVE_DIR, f'training_data_{self.param_str}.npz'),
+                 rewards=self.episode_rewards,
+                 losses=self.episode_losses,
+                 moving_avg_rewards=self.moving_avg_rewards,
+                 moving_avg_losses=self.moving_avg_losses,
+                 steps=self.steps,
+                 times=self.episode_times)
+
 def main():
     '''
     Initialize a gym environment of the "Bank Heist" Atari game
@@ -106,11 +205,6 @@ def main():
 
     logging.basicConfig(level=logging.INFO, format='%(message)s')
     logger = logging.getLogger()
-
-    random.seed(SEED)
-    np.random.seed(SEED)
-    torch.manual_seed(SEED)
-    torch.cuda.manual_seed(SEED)
 
     # Create game environment
     gym_env = gym.make('BankHeist-v4', frameskip=1)
@@ -151,7 +245,7 @@ def main():
     replay_buffer = ReplayBuffer(REPLAY_MEMORY_SIZE)
 
     # Pre-fill replay memory
-    state, _ = env.reset(seed=SEED)
+    state, _ = env.reset()
     for _ in range(REPLAY_MEMORY_START_SIZE):
         action = env.action_space.sample()
         next_state, reward, done, truncated, _ = env.step(action)
@@ -167,9 +261,12 @@ def main():
     episode_durations = []
     start_time = time.time()
 
+    # Initialize the plotter
+    plotter = TrainingPlotter(param_str)
+    
     # Train over a defined number of gameplay episodes
     while steps_done < MAX_FRAMES:   
-        state, _ = env.reset(seed=SEED)
+        state, _ = env.reset()
         done = False
         total_reward = 0
         steps_this_episode = 0
@@ -179,12 +276,7 @@ def main():
             steps_done += 1
             epsilon = compute_epsilon(steps_done)
             if random.random() < epsilon:
-                if random.random() < MOVEMENT_BIAS:
-                    # Only select from movement actions (typically indices 2-9 in Bank Heist)
-                    action = random.randint(2, 9)
-                else:
-                    # Full action space including fire
-                    action = env.action_space.sample()
+                action = env.action_space.sample()
             else:
                 with torch.no_grad():
                     state_tensor = torch.from_numpy(state).unsqueeze(0).float().to(device)
@@ -223,6 +315,9 @@ def main():
             logger.info(f"  Steps This Episode: {steps_this_episode}")
             logger.info(f"  Time Elapsed: {episode_durations[-1]:.2f}s")
 
+        # After episode completes
+        plotter.update(episode, total_reward, losses, steps_done, epsilon)
+        
         episode += 1
         start_time = time.time()
 
@@ -230,6 +325,9 @@ def main():
     torch.save(policy_nn.state_dict(), f"policy_nn_{param_str}.pth")
     torch.save(target_nn.state_dict(), f"target_nn_{param_str}.pth")
     print("Model saved as policy_nn.pth and target_nn.pth")
+
+    # At the end of training
+    plotter.save_data()
 
     env.close()
 
